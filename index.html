@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ubicacion</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#f97316">
+    <style>
+        /* Estilos críticos para la UI de App Móvil */
+        body { font-family: 'Inter', sans-serif; overflow: hidden; }
+        .bottom-panel {
+            transition: transform 0.3s ease-in-out;
+            transform: translateY(100%);
+            z-index: 50;
+        }
+        .bottom-panel.open { transform: translateY(0); }
+        #overlay {
+            display: none;
+            background: rgba(0,0,0,0.5);
+            z-index: 40;
+        }
+        #overlay.active { display: block; }
+        #map { height: 100vh; width: 100vw; background: #f8fafc; }
+        .custom-div-icon { background: none; border: none; }
+
+        #det-motivo {
+            line-height: 1.6;
+        }
+        /* Scrollbar personalizado para la galería */
+        .custom-scroll::-webkit-scrollbar { height: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #ed8936; border-radius: 10px; }
+
+        /* Estilos para Marcadores Modernos */
+.marker-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    white-space: nowrap; /* Evita el salto de línea */
+}
+
+.pill-content {
+    padding: 2px 10px;
+    border-radius: 999px; /* Forma de píldora */
+    font-weight: 800;
+    font-size: 11px;
+    text-transform: uppercase;
+    border: 2px solid;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    background-color: white; /* Fallback */
+}
+
+/* Triángulo inferior del marcador */
+.pill-tip {
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid; /* El color se heredará por JS */
+    margin-top: -1px;
+}
+
+/* Variaciones de Color (Fondo claro, Borde y Texto fuerte) */
+.pill-verde { background-color: #f0fdf4; border-color: #22c55e; color: #166534; }
+.pill-verde-tip { border-top-color: #22c55e; }
+
+.pill-amarillo { background-color: #fffbeb; border-color: #f59e0b; color: #92400e; }
+.pill-amarillo-tip { border-top-color: #f59e0b; }
+
+.pill-rojo { background-color: #fef2f2; border-color: #ef4444; color: #991b1b; }
+.pill-rojo-tip { border-top-color: #ef4444; }
+
+.pill-gris { background-color: #f9fafb; border-color: #9ca3af; color: #374151; }
+.pill-gris-tip { border-top-color: #9ca3af; }
+
+/* Estilos para los iconos de alerta dentro de la píldora */
+.pill-icon {
+    margin-right: 4px;
+    font-size: 10px;
+    vertical-align: middle;
+}
+
+.alert-warning { color: #f59e0b; } /* Ámbar para por vencer */
+.alert-danger { color: #dc2626; }  /* Rojo para vencido */
+
+/* Ajuste para que el contenido de la píldora alinee bien el icono y el texto */
+.pill-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-900 h-screen">
+
+    <div id="overlay" class="fixed inset-0" onclick="closeAllPanels()"></div>
+
+    <section id="inventory-view" class="h-full flex flex-col pb-20 overflow-y-auto">
+        <header class="p-6 bg-white shadow-sm sticky top-0 z-10">
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="text-2xl font-black text-gray-800 tracking-tighter">Ubicacion <span class="text-orange-500">Cloud</span></h1>
+                <button id="btn-login" onclick="toggleLogin()" class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                    <i id="login-icon" class="fa-solid fa-lock text-gray-400"></i>
+                </button>
+            </div>
+            
+            <div class="relative">
+                <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                <input type="text" id="search-id" oninput="buscarPorID()" placeholder="Buscar equipo por ID..." 
+                       class="w-full bg-gray-50 border-none rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-orange-500 outline-none font-medium">
+            </div>
+
+            <div class="flex gap-2 mt-4">
+                <div onclick="filtrarEquipos('todos')" id="filter-all" class="flex-1 bg-white border-b-4 border-orange-500 p-2 text-center cursor-pointer">
+                    <p class="text-[10px] font-black text-gray-400 uppercase">Todos</p>
+                    <p id="count-all" class="text-lg font-black text-gray-800">0</p>
+                </div>
+                <div onclick="filtrarEquipos('Sincronizado')" id="filter-sync" class="flex-1 bg-white border-b-4 border-transparent p-2 text-center cursor-pointer">
+                    <p class="text-[10px] font-black text-gray-400 uppercase">En Nube</p>
+                    <p id="count-sync" class="text-lg font-black text-blue-600">0</p>
+                </div>
+                <div onclick="filtrarEquipos('Pendiente')" id="filter-local" class="flex-1 bg-white border-b-4 border-transparent p-2 text-center cursor-pointer">
+                    <p class="text-[10px] font-black text-gray-400 uppercase">Local</p>
+                    <p id="count-local" class="text-lg font-black text-orange-500">0</p>
+                </div>
+            </div>
+        </header>
+
+        <main id="lista-equipos" class="p-4 space-y-4"></main>
+    </section>
+
+    <section id="map-view" class="fixed inset-0 hidden">
+        <div id="map"></div>
+        <div id="reubicacion-hint" class="fixed top-24 left-1/2 -translate-x-1/2 bg-gray-900/90 backdrop-blur-md text-white px-6 py-4 rounded-3xl text-xs font-bold shadow-2xl z-[1000] hidden flex flex-col items-center gap-3 border border-white/20">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-location-crosshairs animate-pulse text-orange-500"></i> 
+                <span id="txt-reubicar">Selecciona la nueva ubicación</span>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="confirmarPosicionClic()" class="bg-orange-500 text-white px-4 py-2 rounded-xl text-[10px] uppercase font-black shadow-lg">Confirmar</button>
+                <button onclick="cancelarReubicacion()" class="bg-white/10 text-gray-300 px-4 py-2 rounded-xl text-[10px] uppercase border border-white/10">Cancelar</button>
+            </div>
+        </div>
+        <div class="fixed top-6 right-6 z-[1000]">
+            <span id="cloud-status" class="bg-white/90 backdrop-blur px-3 py-1 rounded-full text-[10px] font-bold shadow-sm border border-gray-100 uppercase tracking-tighter">Conectando...</span>
+        </div>
+    </section>
+
+    <div id="detail-sheet" class="bottom-panel fixed bottom-0 left-0 right-0 bg-white rounded-t-[2.5rem] p-0 max-h-[90vh] overflow-hidden flex flex-col">
+        <div class="w-12 h-1.5 bg-gray-200/50 rounded-full mx-auto my-4 absolute top-0 left-0 right-0 z-10"></div>
+
+        <div id="det-header-color" class="p-8 pt-10 transition-colors duration-500">
+            <div class="flex justify-between items-start">
+                <div class="text-white">
+                    <p id="det-id" class="text-4xl font-black tracking-tighter drop-shadow-sm"></p>
+                    <h2 id="det-title" class="text-xl font-bold opacity-90 leading-tight mt-1"></h2>
+                </div>
+                <button onclick="closeAllPanels()" class="w-10 h-10 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/30">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="flex gap-3 mt-6">
+                <div class="bg-white/20 px-4 py-2 rounded-2xl border border-white/30">
+                    <p class="text-[10px] font-black uppercase text-white/70 tracking-widest">Estatus</p>
+                    <p id="det-status-text" class="text-sm font-black text-white uppercase"></p>
+                </div>
+                <div class="bg-white/20 px-4 py-2 rounded-2xl border border-white/30">
+                    <p class="text-[10px] font-black uppercase text-white/70 tracking-widest">Vencimiento</p>
+                    <p id="det-fecha-venc" class="text-sm font-black text-white"></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-6 space-y-6 overflow-y-auto bg-white flex-1 rounded-t-[2.5rem] -mt-6">
+            <div>
+                <p class="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Motivo / Observaciones</p>
+                <p id="det-motivo" class="text-base font-medium text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-2xl border border-gray-100 italic"></p>
+            </div>
+        <div class="grid grid-cols-1 gap-4">
+            <div class="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <p class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Ubicación Física</p>
+                <p id="det-ubicacion-fisica" class="text-sm font-bold text-gray-700 italic">No especificada</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mt-4">
+            <div class="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <p class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1 text-center">Coordenadas (X, Y)</p>
+                <p id="det-coords" class="text-xs font-bold text-gray-700 text-center"></p>
+            </div>
+            <div class="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <p class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1 text-center">Registro</p>
+                <p id="det-fecha-reg" class="text-xs font-bold text-gray-700 text-center"></p>
+            </div>
+        </div>
+
+            <div class="p-4 bg-gray-50 rounded-2xl mt-4 border border-gray-100">
+                <div class="flex justify-between items-center mb-4">
+                    <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Evidencias Fotográficas</span>
+                    <label class="admin-only hidden cursor-pointer bg-orange-500 text-white px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase shadow-sm">
+                        <i class="fa-solid fa-camera mr-1"></i> Añadir
+                        <input type="file" accept="image/*" class="hidden" onchange="procesarImagenDinamica(this)">
+                    </label>
+                </div>
+
+                <div id="det-gallery" class="flex gap-3 overflow-x-auto pb-2 custom-scroll min-h-[100px]">
+                    </div>
+            </div>
+
+            <div class="admin-only hidden grid grid-cols-2 gap-3 pb-6">
+                <button onclick="prepararEdicionDesdeDetalle()" class="bg-gray-100 text-gray-800 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest">
+                    <i class="fa-solid fa-pen mr-2"></i> Editar
+                </button>
+                <button onclick="activarModoReubicacion()" class="bg-gray-800 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest">
+                    <i class="fa-solid fa-arrows-up-down-left-right mr-2"></i> Mover
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="edit-sheet" class="bottom-panel fixed bottom-0 left-0 right-0 bg-white rounded-t-[2.5rem] p-6 max-h-[90vh] overflow-y-auto shadow-2xl">
+        <div class="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6"></div>
+        <div class="flex justify-between items-center mb-6">
+            <h2 id="edit-panel-title" class="text-xl font-black text-gray-800 uppercase italic">Editar Equipo</h2>
+            <button onclick="closeAllPanels()" class="text-gray-400 text-xl"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form id="form-equipo" class="space-y-4">
+            <div>
+                <label class="text-[10px] font-black text-gray-400 uppercase ml-2">ID del Equipo</label>
+                <input type="text" id="inp-id" class="w-full bg-gray-50 p-4 rounded-2xl border-none font-bold text-gray-800 focus:ring-2 focus:ring-orange-500">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Nombre / Descripción</label>
+                <input type="text" id="inp-nombre" class="w-full bg-gray-50 p-4 rounded-2xl border-none font-bold text-gray-800">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Área / Ubicación Física</label>
+                <input type="text" id="inp-ubicacion" placeholder="Ej: Planta 1, Almacén, Lab..." 
+                    class="w-full bg-gray-50 p-4 rounded-2xl border-none font-bold text-gray-800 focus:ring-2 focus:ring-orange-500">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Fecha de Vencimiento</label>
+                <input type="date" id="inp-venc" class="w-full bg-gray-50 p-4 rounded-2xl border-none font-bold text-gray-800">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Estatus Técnico</label>
+                <select id="inp-color" class="w-full bg-gray-50 p-4 rounded-2xl border-none font-bold text-gray-800 appearance-none">
+                    <option value="verde">Activo (Verde)</option>
+                    <option value="amarillo">Falta Documentos (Amarillo)</option>
+                    <option value="rojo">Bloqueado (Rojo)</option>
+                    <option value="gris">Inactivo (Gris)</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Motivo / Observaciones</label>
+                <textarea id="inp-motivo" rows="3" class="w-full bg-gray-50 p-4 rounded-2xl border-none font-bold text-gray-700"></textarea>
+            </div>
+            <div class="space-y-3 pt-4">
+                <button type="button" onclick="guardarCambios()" class="w-full bg-orange-500 text-white py-4 rounded-2xl font-black uppercase shadow-lg shadow-orange-100">Guardar Registro</button>
+                <button id="btn-borrar" type="button" onclick="confirmarBorrado()" class="w-full bg-red-50 text-red-500 py-4 rounded-2xl font-black uppercase text-[10px]">Eliminar Permanente</button>
+            </div>
+        </form>
+    </div>
+
+    <button id="fab-add" onclick="prepareAdd()" class="admin-only hidden fixed bottom-24 right-6 w-16 h-16 bg-orange-500 text-white rounded-2xl shadow-2xl flex items-center justify-center z-30 transition-transform active:scale-95">
+        <i class="fa-solid fa-plus text-2xl"></i>
+    </button>
+
+    <nav class="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-100 flex justify-around items-center p-4 z-40">
+        <button id="nav-inv" onclick="showView('inventory')" class="flex flex-col items-center gap-1 text-orange-500">
+            <i class="fa-solid fa-list-check text-xl"></i>
+            <span class="text-[9px] font-black uppercase tracking-tighter">Inventario</span>
+        </button>
+        <button id="nav-map" onclick="showView('map')" class="flex flex-col items-center gap-1 text-gray-400">
+            <i class="fa-solid fa-map-location-dot text-xl"></i>
+            <span class="text-[9px] font-black uppercase tracking-tighter">Mapa</span>
+        </button>
+    </nav>
+
+    <div id="login-sheet" class="bottom-panel fixed bottom-0 left-0 right-0 bg-white rounded-t-[2.5rem] p-8 z-[60] shadow-2xl">
+        <div class="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-8"></div>
+        <div class="text-center mb-8">
+            <div class="w-16 h-16 bg-orange-100 text-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <i class="fa-solid fa-shield-halved text-2xl"></i>
+            </div>
+            <h2 class="text-2xl font-black text-gray-800 uppercase tracking-tighter">Acceso Admin</h2>
+        </div>
+        <form id="form-login" class="space-y-4">
+            <input type="email" id="login-email" placeholder="Correo electrónico" class="w-full bg-gray-50 p-4 rounded-2xl border-none font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none">
+            <input type="password" id="login-password" placeholder="Contraseña" class="w-full bg-gray-50 p-4 rounded-2xl border-none font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none">
+            <button type="button" onclick="ejecutarLogin()" class="w-full bg-gray-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest mt-4 shadow-xl">Entrar</button>
+            <button type="button" onclick="closeAllPanels()" class="w-full text-gray-400 py-2 text-[10px] font-black uppercase tracking-widest">Cancelar</button>
+        </form>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://izbjauurioyavlpmbgzy.supabase.co/storage/v1/object/public/assets/supabase-js.js"></script>
+    <script src="datos.js"></script>
+    <script src="mapa.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('DOMContentLoaded', () => {
+            if (typeof inicializarAppDatos === 'function') inicializarAppDatos();
+            setTimeout(() => {
+                if (typeof actualizarPermisosUI === 'function') actualizarPermisosUI();
+            }, 500);
+        });
+    </script>
+    <script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('Service Worker registrado', reg))
+        .catch(err => console.warn('Error al registrar SW', err));
+    });
+  }
+</script>
+</body>
+</html>
