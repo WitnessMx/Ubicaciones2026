@@ -181,13 +181,71 @@ async function inicializarAppDatos() {
         await initDB();
         await cargarDatosLocales();
         
-        // Verificación de conexión constante
+        // --- NUEVO: ESCUCHADOR EN TIEMPO REAL ---
+        if (supabaseClient) {
+            configurarRealtime();
+        }
+        // ----------------------------------------
+
         if (typeof verificarConexionSupabase === 'function') {
             verificarConexionSupabase();
         }
     } catch (err) {
         console.error("Fallo crítico al inicializar datos:", err);
     }
+}
+/**
+ * Configura la escucha de cambios en tiempo real desde Supabase
+ */
+function configurarRealtime() {
+    supabaseClient
+        .channel('cambios-metrologia')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'instrumentos' }, async (payload) => {
+            console.log('Cambio detectado en la nube:', payload);
+            
+            const tx = db.transaction("instrumentos", "readwrite");
+            const store = tx.objectStore("instrumentos");
+
+            if (payload.eventType === 'DELETE') {
+                // 1. Borrar de la memoria (array global)
+                equipos = equipos.filter(eq => eq.id !== payload.old.id);
+                // 2. Borrar de IndexedDB
+                store.delete(payload.old.id);
+            } 
+            else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                // Normalizamos el objeto que viene de la nube
+                const item = payload.new;
+                const eqNormalizado = {
+                    id: item.id,
+                    nombre: item.nombre,
+                    fecha: item.fecha,
+                    status: 'Sincronizado',
+                    latitud: item.lat || item.latitud || 0,
+                    longitud: item.lng || item.longitud || 0,
+                    fotos_urls: item.fotos_urls || [],
+                    estatus_color: item.estatus_color || 'gris',
+                    motivo: item.motivo || '',
+                    fecha_vencimiento: item.fecha_vencimiento || '',
+                    ubicacion: item.ubicacion || ''
+                };
+
+                // 1. Actualizar memoria
+                const index = equipos.findIndex(eq => eq.id === eqNormalizado.id);
+                if (index !== -1) equipos[index] = eqNormalizado;
+                else equipos.push(eqNormalizado);
+
+                // 2. Actualizar IndexedDB
+                store.put(eqNormalizado);
+            }
+
+            tx.oncomplete = () => {
+                // 3. Refrescar la pantalla
+                if (typeof renderLista === 'function') renderLista();
+                if (typeof renderMapa === 'function') renderMapa();
+                if (typeof actualizarContadores === 'function') actualizarContadores();
+            };
+        })
+        .subscribe();
 }
 /**
  * Elimina un registro de IndexedDB y Supabase.
