@@ -104,7 +104,7 @@
         <header class="p-6 bg-white shadow-sm sticky top-0 z-10">
             <div class="flex justify-between items-center mb-4">
                 <h1 class="text-2xl font-black text-gray-800 tracking-tighter">Ubicacion <span class="text-orange-500">Cloud</span></h1>
-                <button id="btn-login" onclick="toggleLogin()" class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                <button id="btn-login" aria-label="Iniciar sesión" onclick="toggleLogin()" class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
                     <i id="login-icon" class="fa-solid fa-lock text-gray-400"></i>
                 </button>
             </div>
@@ -160,7 +160,7 @@
                     <p id="det-id" class="text-4xl font-black tracking-tighter drop-shadow-sm"></p>
                     <h2 id="det-title" class="text-xl font-bold opacity-90 leading-tight mt-1"></h2>
                 </div>
-                <button onclick="closeAllPanels()" class="w-10 h-10 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/30">
+                <button onclick="closeAllPanels()" aria-label="Cerrar panel" class="w-10 h-10 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/30">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
@@ -227,7 +227,7 @@
         <div class="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6"></div>
         <div class="flex justify-between items-center mb-6">
             <h2 id="edit-panel-title" class="text-xl font-black text-gray-800 uppercase italic">Editar Equipo</h2>
-            <button onclick="closeAllPanels()" class="text-gray-400 text-xl"><i class="fa-solid fa-xmark"></i></button>
+            <button onclick="closeAllPanels()" aria-label="Cerrar panel" class="text-gray-400 text-xl"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <form id="form-equipo" class="space-y-4">
             <div>
@@ -267,7 +267,7 @@
         </form>
     </div>
 
-    <button id="fab-add" onclick="prepareAdd()" class="admin-only hidden fixed bottom-24 right-6 w-16 h-16 bg-orange-500 text-white rounded-2xl shadow-2xl flex items-center justify-center z-30 transition-transform active:scale-95">
+    <button id="fab-add" aria-label="Agregar nuevo equipo" onclick="prepareAdd()" class="admin-only hidden fixed bottom-24 right-6 w-16 h-16 bg-orange-500 text-white rounded-2xl shadow-2xl flex items-center justify-center z-30 transition-transform active:scale-95">
         <i class="fa-solid fa-plus text-2xl"></i>
     </button>
 
