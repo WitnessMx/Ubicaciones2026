@@ -181,11 +181,20 @@ async function inicializarAppDatos() {
         await initDB();
         await cargarDatosLocales();
         
-        // --- NUEVO: ESCUCHADOR EN TIEMPO REAL ---
         if (supabaseClient) {
             configurarRealtime();
         }
-        // ----------------------------------------
+
+        // --- NUEVO: Detectar cuando el móvil recupera internet ---
+        window.addEventListener('online', () => {
+            console.log("¡Conexión recuperada! Sincronizando pendientes...");
+            sincronizarPendientes();
+        });
+
+        // Intentar sincronizar apenas abra la app por si quedaron cosas ayer
+        if (navigator.onLine) {
+            sincronizarPendientes();
+        }
 
         if (typeof verificarConexionSupabase === 'function') {
             verificarConexionSupabase();
@@ -194,6 +203,7 @@ async function inicializarAppDatos() {
         console.error("Fallo crítico al inicializar datos:", err);
     }
 }
+
 /**
  * Configura la escucha de cambios en tiempo real desde Supabase
  */
@@ -298,4 +308,29 @@ function guardarEnLocal(equipo) {
     };
     
     request.onerror = (e) => console.error("Error al guardar en IndexedDB", e);
+}
+
+/**
+ * Busca registros locales con estatus 'Pendiente' y los sube a la nube.
+ */
+async function sincronizarPendientes() {
+    if (!navigator.onLine || !db || !supabaseClient) return;
+
+    const tx = db.transaction("instrumentos", "readonly");
+    const store = tx.objectStore("instrumentos");
+    const req = store.getAll();
+
+    req.onsuccess = async () => {
+        const todos = req.result;
+        // Filtramos los que no se han subido
+        const pendientes = todos.filter(eq => eq.status === 'Pendiente');
+
+        if (pendientes.length === 0) return;
+
+        console.log(`Subiendo ${pendientes.length} registros pendientes...`);
+
+        for (const equipo of pendientes) {
+            await sincronizarACloud(equipo);
+        }
+    };
 }
