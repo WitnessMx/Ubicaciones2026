@@ -13,7 +13,7 @@ var supabaseClient; // Usamos var para asegurar que sea global
 window.supabaseClient = supabase.createClient(SB_URL, SB_KEY);
 
 const DB_NAME = "GeoEquiposDB";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let db;             // Conexión IndexedDB
 let equipos = [];   // Array global de registros
@@ -32,17 +32,16 @@ var tempNuevoEquipo = null; // Esta es la clave para los registros nuevos
  */
 function initDB() {
     return new Promise((resolve, reject) => {
-        if (!window.indexedDB) {
-            console.error("Tu navegador no soporta IndexedDB.");
-            return reject("No soportado");
-        }
-
         const request = indexedDB.open(DB_NAME, DB_VERSION);
 
         request.onupgradeneeded = (e) => {
             const dbInstance = e.target.result;
             if (!dbInstance.objectStoreNames.contains("instrumentos")) {
                 dbInstance.createObjectStore("instrumentos", { keyPath: "id" });
+            }
+            // NUEVO: Almacén para IDs pendientes de borrar
+            if (!dbInstance.objectStoreNames.contains("eliminaciones_pendientes")) {
+                dbInstance.createObjectStore("eliminaciones_pendientes", { keyPath: "id" });
             }
         };
 
@@ -263,20 +262,24 @@ function configurarRealtime() {
 async function borrarRegistro(id) {
     if (!db) return;
     
-    // 1. Borrar de Local
-    const tx = db.transaction("instrumentos", "readwrite");
-    tx.objectStore("instrumentos").delete(id);
-    
-    // 2. Borrar de Nube (si hay internet)
-    if (navigator.onLine && supabaseClient) {
-        await supabaseClient.from('instrumentos').delete().eq('id', id);
-    }
-    
-    // 3. Actualizar array global y UI
+    // 1. Borrar de la memoria local y UI inmediatamente
     equipos = equipos.filter(e => e.id !== id);
     if (typeof renderLista === 'function') renderLista();
     if (typeof renderMapa === 'function') renderMapa();
     closeAllPanels();
+
+    // 2. Borrar del almacén principal de IndexedDB
+    const tx = db.transaction(["instrumentos", "eliminaciones_pendientes"], "readwrite");
+    tx.objectStore("instrumentos").delete(id);
+    
+    // 3. ¿Hay internet?
+    if (navigator.onLine && supabaseClient) {
+        await supabaseClient.from('instrumentos').delete().eq('id', id);
+    } else {
+        // Si NO hay internet, anotamos el ID para borrarlo luego
+        console.log("Modo Offline: Guardando eliminación pendiente para ID:", id);
+        tx.objectStore("eliminaciones_pendientes").put({ id: id });
+    }
 }
 
 /**
@@ -316,19 +319,31 @@ function guardarEnLocal(equipo) {
 async function sincronizarPendientes() {
     if (!navigator.onLine || !db || !supabaseClient) return;
 
+    // --- PARTE A: PROCESAR ELIMINACIONES ---
+    const txDel = db.transaction("eliminaciones_pendientes", "readwrite");
+    const storeDel = txDel.objectStore("eliminaciones_pendientes");
+    const reqDel = storeDel.getAll();
+
+    reqDel.onsuccess = async () => {
+        const porBorrar = reqDel.result;
+        for (const item of porBorrar) {
+            const { error } = await supabaseClient.from('instrumentos').delete().eq('id', item.id);
+            if (!error) {
+                // Si se borró con éxito en la nube, lo quitamos de la lista negra local
+                const txClean = db.transaction("eliminaciones_pendientes", "readwrite");
+                txClean.objectStore("eliminaciones_pendientes").delete(item.id);
+                console.log("Eliminación sincronizada con éxito:", item.id);
+            }
+        }
+    };
+
+    // --- PARTE B: PROCESAR NUEVOS / ACTUALIZADOS (Lo que ya tenías) ---
     const tx = db.transaction("instrumentos", "readonly");
     const store = tx.objectStore("instrumentos");
     const req = store.getAll();
 
     req.onsuccess = async () => {
-        const todos = req.result;
-        // Filtramos los que no se han subido
-        const pendientes = todos.filter(eq => eq.status === 'Pendiente');
-
-        if (pendientes.length === 0) return;
-
-        console.log(`Subiendo ${pendientes.length} registros pendientes...`);
-
+        const pendientes = req.result.filter(eq => eq.status === 'Pendiente');
         for (const equipo of pendientes) {
             await sincronizarACloud(equipo);
         }
