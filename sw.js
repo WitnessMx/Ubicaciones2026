@@ -1,4 +1,4 @@
-const CACHE_NAME = 'metrologia-v5';
+const CACHE_NAME = 'metrologia-v6';
 const assets = [
   './',
   './index.html',
